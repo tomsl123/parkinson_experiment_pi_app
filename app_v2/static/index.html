@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi Dashboard v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --bg2: #1a1d27; --border: #2d3148;
+    --text: #e0e0e0; --muted: #6b7280;
+    --green: #22c55e; --yellow: #eab308; --red: #ef4444;
+    --blue: #3b82f6; --purple: #a855f7; --orange: #f97316;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; }
+
+  #app { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
+
+  /* Top bar */
+  #topbar {
+    display: flex; align-items: center; gap: 16px; padding: 0 16px;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+  }
+  #topbar h1 { font-size: 14px; font-weight: 600; letter-spacing: .04em; }
+  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); flex-shrink: 0; }
+  #status-dot.connected { background: var(--green); }
+  #status-dot.mock { background: var(--purple); }
+  #status-label { color: var(--muted); }
+  .spacer { flex: 1; }
+  #rec-timer { font-variant-numeric: tabular-nums; color: var(--red); display: none; }
+  #rec-timer.active { display: block; }
+  #btn-rec {
+    padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+    background: var(--green); color: #000;
+  }
+  #btn-rec.recording { background: var(--red); color: #fff; }
+
+  /* Main layout */
+  #main { display: grid; grid-template-columns: 340px 1fr; overflow: hidden; }
+
+  /* Left: camera + info */
+  #left { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow-y: auto; }
+  #camera-wrap { background: #000; width: 100%; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; }
+  #camera { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #no-camera { color: var(--muted); font-size: 12px; }
+  #stats { padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+  .stat-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+  .stat-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+  /* Right: charts */
+  #charts { display: flex; flex-direction: column; gap: 0; overflow-y: auto; padding: 8px; gap: 8px; }
+  .chart-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .chart-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 6px; }
+
+  /* uPlot overrides for dark theme */
+  .uplot { --uplot-font-color: #9ca3af; }
+  .u-title { color: var(--text) !important; }
+  .u-legend .u-label { color: var(--muted) !important; font-size: 11px; }
+  .u-legend .u-value { color: var(--text) !important; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div id="status-dot"></div>
+    <h1>Pi Dashboard v2</h1>
+    <span id="status-label">Connecting…</span>
+    <a href="/dashboard" style="color:var(--muted);text-decoration:none;font-size:12px;margin-left:12px;">Experiments</a>
+    <div class="spacer"></div>
+    <span id="rec-timer">⏺ <span id="rec-time">0:00</span></span>
+    <button id="btn-rec">Start Recording</button>
+  </div>
+
+  <div id="main">
+    <div id="left">
+      <div id="camera-wrap">
+        <img id="camera" style="display:none">
+        <span id="no-camera">No camera frame</span>
+      </div>
+      <div id="stats">
+        <div class="stat-box"><div class="stat-label">MAR</div><div class="stat-value" id="val-mar">—</div></div>
+        <div class="stat-box"><div class="stat-label">SPL</div><div class="stat-value" id="val-spl">—</div></div>
+        <div class="stat-box"><div class="stat-label">Accel Z</div><div class="stat-value" id="val-az">—</div></div>
+        <div class="stat-box"><div class="stat-label">Gyro X</div><div class="stat-value" id="val-gx">—</div></div>
+      </div>
+    </div>
+
+    <div id="charts">
+      <div class="chart-card"><div class="chart-title">Mouth Aspect Ratio (MAR)</div><div id="chart-nhm"></div></div>
+      <div class="chart-card"><div class="chart-title">Sound Pressure Level</div><div id="chart-spl"></div></div>
+      <div class="chart-card"><div class="chart-title">Accelerometer (g)</div><div id="chart-accel"></div></div>
+      <div class="chart-card"><div class="chart-title">Gyroscope (°/s)</div><div id="chart-gyro"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

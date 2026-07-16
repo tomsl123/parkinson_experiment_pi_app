@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+requests
+mediapipe
+opencv-python-headless
+python-multipart
+soundfile
+# existing deps (already in requirements.txt): streamlit, numpy, pandas, pillow, websockets

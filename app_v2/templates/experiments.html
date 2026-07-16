@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiments — Pi Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --bg2: #1a1d27; --bg3: #23263a; --border: #2d3148;
+    --text: #e0e0e0; --muted: #6b7280;
+    --green: #22c55e; --red: #ef4444; --blue: #3b82f6;
+  }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; }
+
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 48px;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 14px; font-weight: 600; }
+  header nav { display: flex; gap: 12px; margin-left: auto; }
+  header nav a { color: var(--muted); text-decoration: none; font-size: 12px; }
+  header nav a:hover { color: var(--text); }
+
+  .page { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  .toolbar h2 { font-size: 18px; font-weight: 600; }
+
+  .btn {
+    padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .btn-primary { background: var(--green); color: #000; }
+  .btn-primary:hover { opacity: .9; }
+  .btn-sm { padding: 4px 10px; font-size: 11px; background: var(--bg3); color: var(--text); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; }
+  .btn-sm:hover { background: var(--border); }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; }
+  tbody tr:hover td { background: var(--bg2); }
+  tbody td { padding: 10px 12px; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    background: var(--bg3); color: var(--muted); border: 1px solid var(--border);
+  }
+  .empty { text-align: center; padding: 60px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pi Dashboard</h1>
+  <nav>
+    <a href="/">Live Feed</a>
+    <a href="/dashboard" style="color:var(--text)">Experiments</a>
+  </nav>
+</header>
+
+<div class="page">
+  <div class="toolbar">
+    <h2>Experiments</h2>
+    <a href="/dashboard/experiments/new"><button class="btn btn-primary">+ New Experiment</button></a>
+  </div>
+
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Patient</th>
+        <th>Age</th>
+        <th>Height</th>
+        <th>Distance</th>
+        <th>Created</th>
+        <th>Exercises</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="8" class="empty">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script src="/dashboard.js"></script>
+<script>
+async function load() {
+  const experiments = await apiFetch('/api/experiments');
+  const tbody = document.getElementById('tbody');
+  if (!experiments.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No experiments yet. Create one to get started.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = experiments.map(e => `
+    <tr onclick="location.href='/dashboard/experiments/${e.id}'">
+      <td><span class="badge">${e.id}</span></td>
+      <td style="font-weight:500">${e.patient_number || '—'}</td>
+      <td style="color:var(--muted)">${e.age != null ? e.age : '—'}</td>
+      <td style="color:var(--muted)">${e.height != null ? e.height + ' cm' : '—'}</td>
+      <td style="color:var(--muted)">${e.distance_meters != null ? e.distance_meters + ' m' : '—'}</td>
+      <td style="color:var(--muted)">${fmtDate(e.created_at)}</td>
+      <td>${e.exercise_count}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-sm" onclick="event.stopPropagation(); location.href='/dashboard/experiments/${e.id}'">Open →</button>
+        <a href="/api/experiments/${e.id}/download" onclick="event.stopPropagation()">
+          <button class="btn-sm">↓ ZIP</button>
+        </a>
+        <button class="btn-sm" style="color:var(--red)" onclick="event.stopPropagation(); deleteExperiment(${e.id}, '${(e.patient_number||'Experiment '+e.id).replace(/'/g,"\\'")}')">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function deleteExperiment(id, name) {
+  if (!confirm(`Delete experiment ${name} and all its exercises?\n\nThis cannot be undone.`)) return;
+  try {
+    await apiFetch(`/api/experiments/${id}`, { method: 'DELETE' });
+    load();
+  } catch(e) {
+    toast(`Delete failed: ${e.message}`, 'error');
+  }
+}
+load();
+</script>
+</body>
+</html>

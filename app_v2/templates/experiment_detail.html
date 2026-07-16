@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ experiment.patient_number or ('#' ~ experiment.id) }} — Pi Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117; --bg2: #1a1d27; --bg3: #23263a; --border: #2d3148;
+    --text: #e0e0e0; --muted: #6b7280;
+    --green: #22c55e; --red: #ef4444; --blue: #3b82f6; --purple: #a855f7;
+  }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; }
+
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 48px;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 14px; font-weight: 600; }
+  header nav { display: flex; gap: 12px; margin-left: auto; }
+  header nav a { color: var(--muted); text-decoration: none; font-size: 12px; }
+
+  .page { max-width: 960px; margin: 32px auto; padding: 0 16px; }
+  .back { color: var(--muted); text-decoration: none; font-size: 12px; display: inline-block; margin-bottom: 20px; }
+  .back:hover { color: var(--text); }
+
+  .exp-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 16px; }
+  .exp-meta h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .exp-meta .meta-row { display: flex; gap: 20px; }
+  .meta-item { color: var(--muted); }
+  .meta-item span { color: var(--text); font-weight: 500; }
+
+  .rec-controls { display: flex; align-items: center; gap: 12px; }
+  #rec-timer { color: var(--red); font-variant-numeric: tabular-nums; font-weight: 600; display: none; }
+  .btn {
+    padding: 8px 18px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600;
+  }
+  .btn-rec { background: var(--green); color: #000; }
+  .btn-rec.recording { background: var(--red); color: #fff; }
+  .btn-rec:disabled { opacity: .5; cursor: default; }
+
+  .section-title { font-size: 12px; font-weight: 600; text-transform: uppercase;
+                   letter-spacing: .07em; color: var(--muted); margin-bottom: 12px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:hover td { background: var(--bg2); }
+  tbody td { padding: 10px 12px; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px;
+           background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+  .sensor-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px;
+                font-weight: 600; margin-right: 3px; background: var(--bg3); border: 1px solid var(--border); }
+  .btn-sm { padding: 4px 10px; font-size: 11px; background: var(--bg3); color: var(--text);
+            border: 1px solid var(--border); border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-sm:hover { background: var(--border); }
+  .empty { text-align: center; padding: 48px; color: var(--muted); }
+  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+           background: var(--red); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pi Dashboard</h1>
+  <nav>
+    <a href="/">Live Feed</a>
+    <a href="/dashboard">Experiments</a>
+  </nav>
+</header>
+
+<div class="page">
+  <a href="/dashboard" class="back">← Experiments</a>
+
+  <div class="exp-header">
+    <div class="exp-meta">
+      <h2>{{ experiment.patient_number or ('#' ~ experiment.id) }}</h2>
+      <div class="meta-row">
+        <div class="meta-item">Age: <span>{% if experiment.age is not none %}{{ experiment.age }} y{% else %}—{% endif %}</span></div>
+        <div class="meta-item">Height: <span>{% if experiment.height is not none %}{{ experiment.height }} cm{% else %}—{% endif %}</span></div>
+        <div class="meta-item">Weight: <span>{% if experiment.weight is not none %}{{ experiment.weight }} kg{% else %}—{% endif %}</span></div>
+        <div class="meta-item">Distance: <span>{% if experiment.distance_meters is not none %}{{ experiment.distance_meters }} m{% else %}—{% endif %}</span></div>
+        <div class="meta-item">Created: <span>{{ created_fmt }}</span></div>
+        <div class="meta-item">ID: <span>#{{ experiment.id }}</span></div>
+      </div>
+    </div>
+    <div class="rec-controls">
+      <span id="rec-timer">⏺ <span id="rec-time">0:00</span></span>
+      <button class="btn btn-rec" id="btn-rec">Start Recording</button>
+      <a href="/api/experiments/{{ experiment.id }}/download">
+        <button class="btn" style="background:var(--bg3);border:1px solid var(--border);color:var(--text)">↓ Export All</button>
+      </a>
+      <button class="btn" style="background:var(--bg3);border:1px solid var(--red);color:var(--red)" onclick="deleteExperiment()">Delete</button>
+    </div>
+  </div>
+
+  <div class="section-title">Exercises</div>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Started</th>
+        <th>Duration</th>
+        <th>Sensors</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="5" class="empty">No exercises yet. Hit Start Recording to begin.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script src="/dashboard.js"></script>
+<script>
+const EXP_ID = {{ experiment.id }};
+let pollTimer = null;
+
+function renderExercises(exercises) {
+  const tbody = document.getElementById('tbody');
+  if (!exercises.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No exercises yet. Hit Start Recording to begin.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = exercises.map((x, i) => {
+    const inProgress = x.recording_status === 'recording' || (x.recording_status === 'idle' && !!x.recording_started_at);
+    const duration = inProgress
+      ? '<span class="pulse"></span> recording…'
+      : fmtDuration(x.recording_started_at, x.recording_ended_at);
+    const sensors = inProgress ? '—' : fmtSensors(x.sensors);
+    const wav = x.wav_filename ? ' · WAV' : '';
+    const dlBtn = !inProgress && x.recording_ended_at
+      ? `<a href="/api/exercises/${x.id}/download" class="btn-sm">↓ CSV</a>
+         <button class="btn-sm" style="color:var(--red)" onclick="deleteExercise(${x.id})">Delete</button>`
+      : '';
+    return `
+      <tr>
+        <td><span class="badge">${i + 1}</span></td>
+        <td>${fmtDate(x.recording_started_at || x.created_at)}</td>
+        <td>${duration}</td>
+        <td>${sensors}${wav}</td>
+        <td>${dlBtn}</td>
+      </tr>`;
+  }).join('');
+}
+
+async function pollExercises() {
+  try {
+    const data = await apiFetch(`/api/experiments/${EXP_ID}`);
+    renderExercises(data.exercises);
+  } catch (e) { /* ignore */ }
+}
+
+pollExercises();
+
+initRecording({
+  expId: EXP_ID,
+  btnEl: document.getElementById('btn-rec'),
+  timerEl: document.getElementById('rec-timer'),
+  timerTextEl: document.getElementById('rec-time'),
+  onStop: () => {
+    // Poll quickly a few times after stop to catch the finished exercise
+    let ticks = 0;
+    const fast = setInterval(() => { pollExercises(); if (++ticks >= 6) clearInterval(fast); }, 1000);
+  },
+});
+
+// Background poll every 3s to pick up WAV filename filling in
+pollTimer = setInterval(pollExercises, 3000);
+
+async function deleteExperiment() {
+  if (!confirm('Delete this experiment and all its exercises?\n\nThis cannot be undone.')) return;
+  try {
+    await apiFetch(`/api/experiments/${EXP_ID}`, { method: 'DELETE' });
+    location.href = '/dashboard';
+  } catch(e) {
+    toast(`Delete failed: ${e.message}`, 'error');
+  }
+}
+
+async function deleteExercise(exId) {
+  if (!confirm('Delete this exercise and its recorded data?\n\nThis cannot be undone.')) return;
+  try {
+    await apiFetch(`/api/exercises/${exId}`, { method: 'DELETE' });
+    pollExercises();
+  } catch(e) {
+    toast(`Delete failed: ${e.message}`, 'error');
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,549 @@
+openapi: 3.0.3
+info:
+  title: Experiment API
+  version: 1.0.0
+  description: >
+    REST API for managing experiments and exercises in a research study
+    investigating the relationship between language and movement in
+    Parkinson's patients.
+
+
+    An **experiment** is the umbrella entity holding test-person data. Each
+    experiment contains one or more **exercises**, which represent individual
+    recording steps. Recording is controlled via start/stop actions, and the
+    recorded plus processed sensor data can be retrieved per exercise.
+  contact:
+    name: Experiment API
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Experiments
+    description: Manage experiments (the umbrella entity).
+  - name: Exercises
+    description: Manage exercises within experiments.
+  - name: Recording
+    description: Control data recording for an exercise.
+  - name: Data
+    description: Retrieve and clear recorded and processed exercise data.
+
+paths:
+  /experiments:
+    post:
+      tags: [Experiments]
+      summary: Create a new experiment
+      description: Creates a new experiment. The server sets `id` and `createdAt`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentInput'
+      responses:
+        '201':
+          description: Experiment created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      tags: [Experiments]
+      summary: List experiments (paginated)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A paginated list of experiments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExperimentPage'
+
+  /experiments/{experimentId}:
+    parameters:
+      - $ref: '#/components/parameters/ExperimentId'
+    get:
+      tags: [Experiments]
+      summary: Get an experiment by id
+      responses:
+        '200':
+          description: The experiment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Experiments]
+      summary: Update an experiment
+      description: Partially updates an experiment. Only the provided fields are changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExperimentInput'
+      responses:
+        '200':
+          description: The updated experiment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Experiment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Experiments]
+      summary: Delete an experiment and all related data
+      description: Deletes the experiment together with all its exercises and their recorded data.
+      responses:
+        '204':
+          description: Deleted.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /experiments/{experimentId}/exercises:
+    parameters:
+      - $ref: '#/components/parameters/ExperimentId'
+    post:
+      tags: [Exercises]
+      summary: Create an exercise within an experiment
+      description: Creates a new exercise. The server sets `id` and `createdAt`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExerciseInput'
+      responses:
+        '201':
+          description: Exercise created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Exercise'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Exercises]
+      summary: List all exercises of an experiment
+      responses:
+        '200':
+          description: The exercises of the experiment.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Exercise'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /exercises:
+    get:
+      tags: [Exercises]
+      summary: List all exercises (across experiments, paginated)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A paginated list of exercises.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExercisePage'
+
+  /exercises/{exerciseId}:
+    parameters:
+      - $ref: '#/components/parameters/ExerciseId'
+    get:
+      tags: [Exercises]
+      summary: Get an exercise by id
+      responses:
+        '200':
+          description: The exercise.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Exercise'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Exercises]
+      summary: Delete an exercise completely
+      responses:
+        '204':
+          description: Deleted.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /exercises/{exerciseId}/recording/start:
+    parameters:
+      - $ref: '#/components/parameters/ExerciseId'
+    post:
+      tags: [Recording]
+      summary: Start data recording for an exercise
+      description: >
+        Starts recording. Only works if the exercise has no data yet; otherwise
+        `409 Conflict` is returned. Clear the data first to re-record.
+      responses:
+        '200':
+          description: Recording started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Exercise'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /exercises/{exerciseId}/recording/stop:
+    parameters:
+      - $ref: '#/components/parameters/ExerciseId'
+    post:
+      tags: [Recording]
+      summary: Stop data recording for an exercise
+      responses:
+        '200':
+          description: Recording stopped.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Exercise'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /exercises/{exerciseId}/data:
+    parameters:
+      - $ref: '#/components/parameters/ExerciseId'
+    get:
+      tags: [Data]
+      summary: Get recorded and processed data for an exercise
+      responses:
+        '200':
+          description: The recorded and processed data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExerciseData'
+        '404':
+          description: Exercise not found, or the exercise has no data yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Data]
+      summary: Clear recorded exercise data
+      description: Removes the recorded data but keeps the exercise, allowing a new recording.
+      responses:
+        '204':
+          description: Data cleared.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    ExperimentId:
+      name: experimentId
+      in: path
+      required: true
+      description: The id of the experiment.
+      schema:
+        type: string
+    ExerciseId:
+      name: exerciseId
+      in: path
+      required: true
+      description: The id of the exercise.
+      schema:
+        type: string
+    Page:
+      name: page
+      in: query
+      description: 1-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    BadRequest:
+      description: The request body is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: The request conflicts with the current state of the resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Properties:
+      type: object
+      description: Custom string key-value pairs provided by the experimenter.
+      additionalProperties:
+        type: string
+      example:
+        room: "Lab 2"
+        notes: "morning session"
+
+    ExperimentInput:
+      type: object
+      description: Writable fields of an experiment.
+      properties:
+        patientNumber:
+          type: string
+          description: Identifier of the test person / patient.
+          example: "P-0042"
+        height:
+          type: number
+          description: Body height in centimeters.
+          example: 176
+        age:
+          type: integer
+          description: Age in years.
+          example: 63
+        weight:
+          type: number
+          description: Body weight in kilograms.
+          example: 78.5
+        properties:
+          $ref: '#/components/schemas/Properties'
+
+    Experiment:
+      allOf:
+        - $ref: '#/components/schemas/ExperimentInput'
+        - type: object
+          required: [id, createdAt]
+          properties:
+            id:
+              type: string
+              description: Server-assigned unique id.
+              example: "b3c1e0d2-..."
+            createdAt:
+              type: string
+              format: date-time
+              description: Creation timestamp (ISO 8601, UTC).
+
+    ExerciseInput:
+      type: object
+      description: Writable fields of an exercise.
+      properties:
+        properties:
+          $ref: '#/components/schemas/Properties'
+
+    Exercise:
+      type: object
+      required: [id, experimentId, createdAt, recordingStatus, hasData]
+      properties:
+        id:
+          type: string
+          description: Server-assigned unique id.
+        experimentId:
+          type: string
+          description: Id of the owning experiment.
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp (ISO 8601, UTC).
+        recordingStatus:
+          type: string
+          enum: [idle, frecording, stopped]
+          description: Current recording state of the exercise.
+        hasData:
+          type: boolean
+          description: Whether recorded data is present for this exercise.
+        recordingStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the current/last recording started (null if never started).
+        recordingEndedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the current/last recording stopped (null if not stopped).
+        properties:
+          $ref: '#/components/schemas/Properties'
+
+    SignalFloat:
+      type: object
+      description: A one-dimensional signal channel of floating point samples.
+      required: [values, sampleRate]
+      properties:
+        values:
+          type: array
+          items:
+            type: number
+            format: float
+          description: The sample values.
+        sampleRate:
+          type: number
+          description: Sampling rate in Hz.
+        unit:
+          type: string
+          description: Physical unit of the samples.
+
+    MouthOpening:
+      type: object
+      description: >
+        Vertical/horizontal mouth opening relative to the video frame size.
+      required: [values, sampleRate]
+      properties:
+        values:
+          type: array
+          description: Tuples of [vertical, horizontal] opening, each relative to frame size.
+          items:
+            type: array
+            items:
+              type: number
+              format: float
+            minItems: 2
+            maxItems: 2
+        sampleRate:
+          type: number
+          description: Sampling rate in Hz.
+
+    ExerciseData:
+      type: object
+      description: Recorded and processed data for one exercise, grouped by signal type.
+      required: [exerciseId, mouthOpening, soundPressure, footSpeed, aggregates]
+      properties:
+        exerciseId:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the recording of this data started.
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the recording of this data ended.
+        mouthOpening:
+          $ref: '#/components/schemas/MouthOpening'
+        soundPressure:
+          allOf:
+            - $ref: '#/components/schemas/SignalFloat'
+            - type: object
+              description: Sound pressure. Unit is either Pascal ("Pa") or Decibel ("dB").
+              properties:
+                unit:
+                  type: string
+                  enum: ["Pa", "dB"]
+        footSpeed:
+          allOf:
+            - $ref: '#/components/schemas/SignalFloat'
+            - type: object
+              description: Foot speed in centimeters per second.
+              properties:
+                unit:
+                  type: string
+                  enum: ["cm/s"]
+        aggregates:
+          type: object
+          description: Processed / aggregated results.
+          properties:
+            stepLengths:
+              type: object
+              description: Step lengths in centimeters.
+              properties:
+                values:
+                  type: array
+                  items:
+                    type: number
+                    format: float
+                unit:
+                  type: string
+                  enum: ["cm"]
+            averages:
+              $ref: '#/components/schemas/AggregateStats'
+            medians:
+              $ref: '#/components/schemas/AggregateStats'
+
+    AggregateStats:
+      type: object
+      description: Per-signal scalar statistic (average or median).
+      properties:
+        mouthOpeningVertical:
+          type: number
+        mouthOpeningHorizontal:
+          type: number
+        soundPressure:
+          type: number
+        footSpeed:
+          type: number
+        stepLength:
+          type: number
+
+    ExperimentPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Experiment'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Total number of experiments.
+
+    ExercisePage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Exercise'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Total number of exercises.
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
