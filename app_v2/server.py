@@ -35,7 +35,7 @@ import logging
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import ACCEL_SCALE, GYRO_SCALE, IMU_HZ, AUDIO_HZ, WINDOW_SECONDS
+from config import ACCEL_SCALE, GYRO_SCALE, IMU_HZ, AUDIO_HZ, WINDOW_SECONDS, rms_to_dbspl
 from server.buffer import SensorBuffer
 from server.cv_processor import compute_nhm
 from app_v2 import db
@@ -141,10 +141,10 @@ async def _ingest(frame: dict) -> None:
 
     elif ftype == "audio":
         _buffer.push_audio(frame)
-        spl = frame.get("spl", 0)
-        await _broadcast_json({"t": "audio", "ts": ts, "spl": spl})
+        rms = frame.get("spl", 0)
+        await _broadcast_json({"t": "audio", "ts": ts, "spl": rms_to_dbspl(rms)})
         if _recording:
-            _rec_rows.setdefault("audio", []).append([ts, spl])
+            _rec_rows.setdefault("audio", []).append([ts, rms])  # store raw RMS
 
     elif ftype == "camera":
         try:
@@ -260,6 +260,26 @@ _CSV_HEADERS = {
     "audio": ["timestamp", "spl"],
     "mar":   ["timestamp", "vertical", "horizontal"],
 }
+
+
+def _audio_csv_to_dbspl(raw_csv: str) -> str:
+    """Re-encode a stored audio CSV (raw RMS) as dB SPL for export."""
+    s_in  = io.StringIO(raw_csv)
+    s_out = io.StringIO()
+    reader = csv.reader(s_in)
+    writer = csv.writer(s_out)
+    next(reader, None)  # skip original header
+    writer.writerow(["timestamp", "sound_pressure_dbspl"])
+    for row in reader:
+        if len(row) < 2:
+            continue
+        try:
+            rms  = float(row[1])
+            dbspl = round(rms_to_dbspl(rms), 4) if rms > 0 else ""
+        except ValueError:
+            dbspl = ""
+        writer.writerow([row[0], dbspl])
+    return s_out.getvalue()
 
 
 def _build_csv(sensor: str, rows: list) -> str:
@@ -461,7 +481,9 @@ async def api_download_exercise(ex_id: int):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for sensor, gz in blobs.items():
-            zf.writestr(f"{sensor}_{ts_str}.csv", zlib.decompress(gz).decode())
+            raw = zlib.decompress(gz).decode()
+            content = _audio_csv_to_dbspl(raw) if sensor == "audio" else raw
+            zf.writestr(f"{sensor}_{ts_str}.csv", content)
         if ex.get("wav_filename"):
             wav_path = RECORDINGS_DIR / ex["wav_filename"]
             if wav_path.exists():
@@ -497,7 +519,9 @@ async def api_download_experiment(exp_id: int):
             ts_str = datetime.fromtimestamp(ex["recording_started_at"] or ex["created_at"]).strftime("%Y%m%d_%H%M%S")
             prefix = f"exercise_{ex['id']}_{ts_str}"
             for sensor, gz in blobs.items():
-                zf.writestr(f"{prefix}/{sensor}.csv", zlib.decompress(gz).decode())
+                raw = zlib.decompress(gz).decode()
+                content = _audio_csv_to_dbspl(raw) if sensor == "audio" else raw
+                zf.writestr(f"{prefix}/{sensor}.csv", content)
             if ex.get("wav_filename"):
                 wav_path = RECORDINGS_DIR / ex["wav_filename"]
                 if wav_path.exists():

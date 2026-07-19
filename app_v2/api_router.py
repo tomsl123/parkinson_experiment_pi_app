@@ -24,6 +24,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app_v2 import db
+from config import rms_to_dbspl
 
 router = APIRouter()
 
@@ -243,7 +244,7 @@ async def get_exercise_data(exerciseId: str):
     audio_gz = blobs.get("audio")
     if audio_gz:
         spl_df = pd.read_csv(io.StringIO(zlib.decompress(audio_gz).decode()))
-        spl_values = spl_df["spl"].tolist()
+        spl_values = [rms_to_dbspl(v) for v in spl_df["spl"].tolist()]
         diff = spl_df["timestamp"].diff().dropna()
         spl_rate = float(1.0 / diff.median()) if len(diff) > 0 else 0.0
 
@@ -312,7 +313,7 @@ async def get_exercise_data(exerciseId: str):
         "startedAt":  _ts(ex.get("recording_started_at")),
         "endedAt":    _ts(ex.get("recording_ended_at")),
         "mouthOpening":   {"values": mouth_values, "sampleRate": mouth_rate},
-        "soundPressure":  {"values": spl_values,   "sampleRate": spl_rate,  "unit": "Pa"},
+        "soundPressure":  {"values": spl_values,   "sampleRate": spl_rate,  "unit": "dBSPL"},
         "footSpeed":      {"values": foot_speeds,   "sampleRate": step_rate, "unit": "cm/s"},
         "aggregates":     aggregates,
     }
