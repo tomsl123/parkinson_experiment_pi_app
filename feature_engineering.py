@@ -1,4 +1,4 @@
-Now"""
+"""
 Build a session x feature table from the raw sensor CSVs in data/.
 
 Pipeline: data/{imu,audio,mouth}_<timestamp>.csv (+ optional session_meta.csv)

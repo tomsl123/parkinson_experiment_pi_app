@@ -75,9 +75,25 @@ class SharedAudioProvider:
         # WAV capture state — only set while recording is active
         self._wav_queue: Optional[queue.Queue] = None
 
+        # High-pass state for the SPL RMS.  The INMP441 injects large sub-audio
+        # LF/DC drift that dominates a full-band RMS and flattens dB SPL; filter
+        # it out (60 Hz, below the voice fundamental) before computing RMS.  The
+        # WAV recording keeps the raw samples untouched.
+        from config import get_spl_highpass_sos
+        from scipy.signal import sosfilt, sosfilt_zi
+        self._sosfilt   = sosfilt
+        self._hp_sos    = get_spl_highpass_sos()
+        self._hp_zi     = sosfilt_zi(self._hp_sos)  # scaled by first sample below
+        self._hp_primed = False
+
         def _callback(indata: np.ndarray, frames: int, time_info, status) -> None:
-            # 1. Compute RMS for SPL streaming
-            rms = float(np.sqrt(np.mean(indata ** 2)))
+            # 1. Compute RMS for SPL streaming — high-pass first to drop LF drift
+            mono = indata[:, 0] if indata.ndim > 1 else indata.reshape(-1)
+            if not self._hp_primed:
+                self._hp_zi = self._hp_zi * float(mono[0])  # avoid startup step
+                self._hp_primed = True
+            filtered, self._hp_zi = self._sosfilt(self._hp_sos, mono, zi=self._hp_zi)
+            rms = float(np.sqrt(np.mean(filtered ** 2)))
             with self._lock:
                 self._rms = rms
             # 2. If WAV recording is active, enqueue a copy of the raw samples

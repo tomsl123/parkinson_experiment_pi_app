@@ -5,4 +5,5 @@ mediapipe
 opencv-python-headless
 python-multipart
 soundfile
+scipy
 # existing deps (already in requirements.txt): streamlit, numpy, pandas, pillow, websockets

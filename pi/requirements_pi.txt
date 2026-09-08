@@ -1,5 +1,6 @@
 websockets
 soundfile
+scipy
 requests
 opencv-python-headless
 # existing: picamera2 (via apt), smbus2, sounddevice, numpy
