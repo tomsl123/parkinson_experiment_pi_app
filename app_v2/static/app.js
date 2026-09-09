@@ -5,6 +5,17 @@ const GYRO_SCALE  = 131.0;
 const WINDOW_S    = 10;
 const MAX_PTS     = 600; // 60Hz × 10s
 
+// ── Live SPL meter (causal, presentation-only) ────────────────────────────────
+const SPL_TAU        = 0.125;  // EMA time constant (s) — sound-meter "Fast"
+const SPL_PEAK_DECAY = 12;     // peak-hold fall rate (dB/s)
+const SPL_MIN        = 40;     // meter/chart floor (dB SPL)
+const SPL_MAX        = 100;    // meter/chart ceiling (dB SPL)
+
+let splEmaPower = null;  // EMA of linear power (energy domain, like a real meter)
+let splSmoothDb = null;  // current smoothed level (dB SPL)
+let splPeakDb   = null;  // peak-hold marker (dB SPL)
+let splLastTs   = null;
+
 // ── Rolling buffer ────────────────────────────────────────────────────────────
 
 function makeBuffer(keys) {
@@ -25,7 +36,7 @@ function bufPush(b, ts, vals) {
 
 const bufs = {
   nhm:   makeBuffer(['nhm']),
-  spl:   makeBuffer(['spl']),
+  spl:   makeBuffer(['raw', 'smooth']),
   accel: makeBuffer(['x', 'y', 'z']),
   gyro:  makeBuffer(['x', 'y', 'z']),
 };
@@ -39,13 +50,14 @@ const GRID = { stroke: '#2d3148', width: 1 };
 const TICK = { stroke: '#4b5563' };
 const FONT = '11px system-ui, sans-serif';
 
-function chartOpts(target, series, yLabel, height = 140) {
+function chartOpts(target, series, yLabel, height = 140, yRange = null) {
   const width = document.getElementById(target).parentElement.clientWidth - 24;
   return {
     width,
     height,
     cursor: { show: false },
     legend: { show: true },
+    scales: yRange ? { y: { range: yRange } } : {},
     axes: [
       {
         stroke: '#6b7280', font: FONT,
@@ -64,7 +76,10 @@ function chartOpts(target, series, yLabel, height = 140) {
 
 const CHART_SERIES = {
   nhm:   [{ label: 'MAR',    stroke: '#a855f7', width: 1.5 }],
-  spl:   [{ label: 'RMS',    stroke: '#22c55e', width: 1.5 }],
+  spl:   [
+    { label: 'raw',    stroke: 'rgba(34,197,94,0.28)', width: 1 },
+    { label: 'dB SPL', stroke: '#22c55e', width: 2 },
+  ],
   accel: [
     { label: 'X', stroke: '#3b82f6', width: 1.5 },
     { label: 'Y', stroke: '#22c55e', width: 1.5 },
@@ -85,22 +100,43 @@ function relTs(buf) {
   return buf.ts.map(t => t - (t0 || 0));
 }
 
-function makePlot(id, seriesKey, yLabel) {
+function makePlot(id, seriesKey, yLabel, yRange = null) {
   const el = document.getElementById(id);
   const b = bufs[seriesKey];
   const keys = Object.keys(b).filter(k => k !== 'ts');
   const emptyData = [[], ...keys.map(() => [])];
-  const opts = chartOpts(id, CHART_SERIES[seriesKey], yLabel);
+  const opts = chartOpts(id, CHART_SERIES[seriesKey], yLabel, 140, yRange);
   const u = new uPlot(opts, emptyData, el);
   return u;
 }
 
 const plots = {
   nhm:   makePlot('chart-nhm',   'nhm',   'MAR'),
-  spl:   makePlot('chart-spl',   'spl',   'RMS amp'),
+  spl:   makePlot('chart-spl',   'spl',   'dB SPL', [SPL_MIN, SPL_MAX]),
   accel: makePlot('chart-accel', 'accel', 'g'),
   gyro:  makePlot('chart-gyro',  'gyro',  '°/s'),
 };
+
+// ── SPL meter DOM ─────────────────────────────────────────────────────────────
+const splFill   = document.getElementById('spl-fill');
+const splPeakEl = document.getElementById('spl-peak');
+const splDbEl   = document.getElementById('spl-db');
+
+function splPct(db) {
+  return Math.max(0, Math.min(1, (db - SPL_MIN) / (SPL_MAX - SPL_MIN)));
+}
+
+function updateSplMeter() {
+  if (splSmoothDb == null || !splFill) return;
+  splFill.style.width = (splPct(splSmoothDb) * 100) + '%';
+  splFill.style.background =
+    splSmoothDb < 52 ? '#3b82f6' :   // quiet / floor
+    splSmoothDb < 85 ? '#22c55e' :   // good speech level
+    splSmoothDb < 93 ? '#eab308' : '#ef4444';  // loud / near clip
+  if (splPeakDb != null) splPeakEl.style.left = (splPct(splPeakDb) * 100) + '%';
+  splDbEl.textContent = Math.round(splSmoothDb);
+  setVal('val-spl', splSmoothDb, '', 0);
+}
 
 // ── Render loop ───────────────────────────────────────────────────────────────
 
@@ -113,6 +149,7 @@ function render() {
     const vals = Object.keys(b).filter(k => k !== 'ts').map(k => b[k]);
     plots[key].setData([ts, ...vals]);
   }
+  updateSplMeter();
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
@@ -193,9 +230,34 @@ function connect() {
     }
 
     else if (msg.t === 'audio') {
-      bufPush(bufs.spl, msg.ts, [msg.spl]);
+      // msg.spl is per-frame dB SPL (already high-passed on the Pi). Smooth it
+      // causally in the POWER domain (energy) so the meter reads like a real SPL
+      // meter, and track a slow-decaying peak-hold.
+      const now   = msg.ts;
+      const rawDb = msg.spl;  // null on true silence
+      const dt = (splLastTs != null && now > splLastTs && now - splLastTs < 1)
+                 ? now - splLastTs : 0.02;
+
+      if (rawDb != null) {
+        const power = Math.pow(10, (rawDb - 120) / 10);
+        if (splEmaPower == null || dt <= 0 || dt >= 1) {
+          splEmaPower = power;                       // (re)seed after a gap
+        } else {
+          const a = 1 - Math.exp(-dt / SPL_TAU);
+          splEmaPower += a * (power - splEmaPower);
+        }
+        splSmoothDb = 10 * Math.log10(splEmaPower) + 120;
+      }
+
+      if (splSmoothDb != null) {
+        splPeakDb = (splPeakDb == null || splSmoothDb > splPeakDb)
+          ? splSmoothDb
+          : Math.max(splSmoothDb, splPeakDb - SPL_PEAK_DECAY * dt);
+      }
+
+      splLastTs = now;
+      bufPush(bufs.spl, now, [rawDb, splSmoothDb]);
       dirty.spl = true;
-      setVal('val-spl', msg.spl, '', 4);
     }
 
     else if (msg.t === 'mar') {

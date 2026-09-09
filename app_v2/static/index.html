@@ -56,6 +56,24 @@
   .chart-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
   .chart-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 6px; }
 
+  /* Live SPL level meter */
+  .spl-meter { display: flex; align-items: center; gap: 12px; margin-bottom: 3px; }
+  .spl-meter-bar {
+    position: relative; flex: 1; height: 18px;
+    background: #0f1117; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  }
+  .spl-meter-fill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+    background: var(--green); transition: width .06s linear, background .2s linear;
+  }
+  .spl-meter-peak {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
+    background: #fff; opacity: .85; transition: left .06s linear;
+  }
+  .spl-meter-readout { font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; min-width: 64px; text-align: right; }
+  .spl-meter-readout .spl-unit { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .spl-scale { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); margin: 1px 78px 6px 2px; }
+
   /* uPlot overrides for dark theme */
   .uplot { --uplot-font-color: #9ca3af; }
   .u-title { color: var(--text) !important; }
@@ -83,7 +101,7 @@
       </div>
       <div id="stats">
         <div class="stat-box"><div class="stat-label">MAR</div><div class="stat-value" id="val-mar">—</div></div>
-        <div class="stat-box"><div class="stat-label">SPL</div><div class="stat-value" id="val-spl">—</div></div>
+        <div class="stat-box"><div class="stat-label">dB SPL</div><div class="stat-value" id="val-spl">—</div></div>
         <div class="stat-box"><div class="stat-label">Accel Z</div><div class="stat-value" id="val-az">—</div></div>
         <div class="stat-box"><div class="stat-label">Gyro X</div><div class="stat-value" id="val-gx">—</div></div>
       </div>
@@ -91,7 +109,18 @@
 
     <div id="charts">
       <div class="chart-card"><div class="chart-title">Mouth Aspect Ratio (MAR)</div><div id="chart-nhm"></div></div>
-      <div class="chart-card"><div class="chart-title">Sound Pressure Level</div><div id="chart-spl"></div></div>
+      <div class="chart-card">
+        <div class="chart-title">Sound Pressure Level</div>
+        <div class="spl-meter">
+          <div class="spl-meter-bar">
+            <div class="spl-meter-fill" id="spl-fill"></div>
+            <div class="spl-meter-peak" id="spl-peak"></div>
+          </div>
+          <div class="spl-meter-readout"><span id="spl-db">—</span><span class="spl-unit">dB SPL</span></div>
+        </div>
+        <div class="spl-scale"><span>40</span><span>60</span><span>80</span><span>100</span></div>
+        <div id="chart-spl"></div>
+      </div>
       <div class="chart-card"><div class="chart-title">Accelerometer (g)</div><div id="chart-accel"></div></div>
       <div class="chart-card"><div class="chart-title">Gyroscope (°/s)</div><div id="chart-gyro"></div></div>
     </div>
