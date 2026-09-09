@@ -14,13 +14,19 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 
+import config
+
 DATA_DIR = "data"
 OUT_TABLE = "feature_table.csv"
 OUT_PLOT = "feature_summary.png"
 
 STEP_HEIGHT_G = 1.2       # accel_z threshold for a heel-strike, just above resting gravity
 ACTIVITY_THRESHOLD_G = 1.05  # accel magnitude threshold for "moving"
-VOCAL_THRESHOLD = 0.01    # spl threshold separating speech from silence
+# Speech vs silence uses a per-recording adaptive dB SPL threshold:
+#   floor(p10) + VOCAL_ACTIVITY_FRACTION * (loud(p90) - floor(p10)).
+# Adapting per recording keeps it robust to patient loudness and mic distance,
+# which a fixed dB level would not be.
+VOCAL_ACTIVITY_FRACTION = 0.35
 MOUTH_HEIGHT_FRACTION = 0.6  # relative threshold for a mouth-opening peak
 BA_WINDOW_S = 0.3         # +/- window around each step to look for a "Ba" loudness peak
 
@@ -98,22 +104,50 @@ def compute_accel_features(df_imu, step_timestamps, fs):
     }
 
 
+def _loudness_dbspl(df_audio):
+    """(timestamps, dB SPL) from an audio df, non-finite rows dropped.
+
+    Prefers the WAV-derived, smoothed ``sound_pressure_dbspl`` column; falls back
+    to a legacy raw-RMS ``spl`` column (converted via config.rms_to_dbspl)."""
+    ts = pd.to_numeric(df_audio["timestamp"], errors="coerce").to_numpy(dtype=float)
+    if "sound_pressure_dbspl" in df_audio.columns:
+        db = pd.to_numeric(df_audio["sound_pressure_dbspl"], errors="coerce").to_numpy(dtype=float)
+    elif "spl" in df_audio.columns:
+        rms = pd.to_numeric(df_audio["spl"], errors="coerce").to_numpy(dtype=float)
+        db = np.array([config.rms_to_dbspl(r) if np.isfinite(r) and r > 0 else np.nan
+                       for r in rms], dtype=float)
+    else:
+        return np.array([]), np.array([])
+    mask = np.isfinite(ts) & np.isfinite(db)
+    return ts[mask], db[mask]
+
+
+def _vocal_threshold(db):
+    """Adaptive speech/silence cut for one recording (dB SPL)."""
+    if db.size == 0:
+        return np.nan
+    lo, hi = np.percentile(db, 10), np.percentile(db, 90)
+    return lo + VOCAL_ACTIVITY_FRACTION * (hi - lo)
+
+
 def compute_voice_features(df_audio):
     keys = ["mean_loudness", "vocal_activity_ratio", "loudness_variability",
             "loudness_trend", "audio_sample_rate_hz"]
     if df_audio is None:
         return {k: np.nan for k in keys}
 
-    spl = df_audio["spl"].values
-    timestamps = df_audio["timestamp"].values
+    timestamps, db = _loudness_dbspl(df_audio)
+    if db.size == 0:
+        return {k: np.nan for k in keys}
     time_axis = timestamps - timestamps[0]
+    threshold = _vocal_threshold(db)
 
     return {
-        "mean_loudness": spl.mean(),
-        "vocal_activity_ratio": (spl > VOCAL_THRESHOLD).mean(),
-        "loudness_variability": spl.std(),
-        "loudness_trend": np.polyfit(time_axis, spl, 1)[0] if len(spl) > 1 else np.nan,
-        "audio_sample_rate_hz": sampling_rate(timestamps),
+        "mean_loudness": db.mean(),                                    # dB SPL
+        "vocal_activity_ratio": float((db > threshold).mean()),        # fraction phonating
+        "loudness_variability": db.std(),                             # dB
+        "loudness_trend": np.polyfit(time_axis, db, 1)[0] if db.size > 1 else np.nan,  # dB/s
+        "audio_sample_rate_hz": sampling_rate(timestamps) if db.size > 1 else np.nan,
     }
 
 
@@ -170,28 +204,31 @@ def compute_distance_features(distance_m, duration_s, step_count):
 
 
 def compute_ba_vocalization(step_timestamps, df_audio):
-    """For each step, look for an actual loudness peak nearby (a 'Ba' vocalization)."""
+    """For each step, look for a loud 'Ba' near it (loudness above the adaptive
+    threshold within +/- BA_WINDOW_S).  Loudness is dB SPL from the WAV."""
     if df_audio is None or len(step_timestamps) == 0:
         return {"ba_vocalization_ratio": np.nan, "mean_ba_loudness": np.nan}
 
-    audio_ts = df_audio["timestamp"].values
-    spl = df_audio["spl"].values
+    audio_ts, db = _loudness_dbspl(df_audio)
+    if db.size == 0:
+        return {"ba_vocalization_ratio": np.nan, "mean_ba_loudness": np.nan}
+    threshold = _vocal_threshold(db)
 
     peak_loudnesses = []
     vocalized_count = 0
     for step_ts in step_timestamps:
         window = (audio_ts >= step_ts - BA_WINDOW_S) & (audio_ts <= step_ts + BA_WINDOW_S)
-        window_spl = spl[window]
-        if len(window_spl) == 0:
+        window_db = db[window]
+        if window_db.size == 0:
             continue
-        peaks, _ = find_peaks(window_spl, height=VOCAL_THRESHOLD)
-        if len(peaks) > 0:
+        peak = window_db.max()  # smoothed envelope: the window max is the "Ba" level
+        if peak > threshold:
             vocalized_count += 1
-            peak_loudnesses.append(window_spl[peaks].max())
+            peak_loudnesses.append(peak)
 
     return {
         "ba_vocalization_ratio": vocalized_count / len(step_timestamps),
-        "mean_ba_loudness": np.mean(peak_loudnesses) if peak_loudnesses else np.nan,
+        "mean_ba_loudness": float(np.mean(peak_loudnesses)) if peak_loudnesses else np.nan,
     }
 
 

@@ -54,6 +54,14 @@ AUDIO_SAMPLERATE   = 48000
 SPL_HIGHPASS_HZ    = 60.0
 SPL_HIGHPASS_ORDER = 2
 
+# Macro smoothing of the derived dB SPL envelope.  The per-frame RMS is noisy at
+# ~20 ms resolution; feature engineering wants the macro loudness shape (per-"ba"
+# bursts, overall trend), not sub-100 ms jitter.  Averaging is done in the POWER
+# domain (equivalent continuous level / Leq) then converted to dB — the physically
+# correct time-weighting.  200 ms halves the jitter while keeping the full dynamic
+# range and sits well below the ~1 s "ba" spacing, so bursts stay distinct.
+SPL_SMOOTH_MS = 200.0
+
 _HP_SOS = None
 
 
@@ -68,7 +76,7 @@ def get_spl_highpass_sos():
     return _HP_SOS
 
 
-def wav_to_dbspl_rows(wav_path, start_timestamp=None, target_hz=None):
+def wav_to_dbspl_rows(wav_path, start_timestamp=None, target_hz=None, smooth_ms=None):
     """Derive [timestamp, dB SPL] rows straight from a mono WAV.
 
     High-passes the signal (removing the INMP441 LF drift), takes block RMS at
@@ -76,10 +84,15 @@ def wav_to_dbspl_rows(wav_path, start_timestamp=None, target_hz=None):
     for a recording: the stored per-block RMS CSV has the LF baked into each
     scalar and cannot be corrected after the fact, but the WAV is intact.
 
+    The envelope is smoothed in the power domain (Leq-style) over ``smooth_ms`` to
+    give the macro loudness shape rather than ~20 ms micro-fluctuations.
+
     start_timestamp: unix time of the first sample; if None it is parsed from an
     ``audio_<ts>.wav`` filename (that is exactly when capture began).
-    target_hz: output rate (default AUDIO_HZ).  Returns a list of
-    [timestamp_str, dbspl_or_empty]; the value is "" where RMS is non-positive.
+    target_hz: output rate (default AUDIO_HZ).
+    smooth_ms: power-domain moving-average width (default SPL_SMOOTH_MS; 0/None
+    disables smoothing).  Returns a list of [timestamp_str, dbspl_or_empty]; the
+    value is "" where RMS is non-positive.
     """
     import os
     import re
@@ -90,6 +103,8 @@ def wav_to_dbspl_rows(wav_path, start_timestamp=None, target_hz=None):
 
     if target_hz is None:
         target_hz = AUDIO_HZ
+    if smooth_ms is None:
+        smooth_ms = SPL_SMOOTH_MS
 
     with wave.open(str(wav_path), "rb") as wf:
         sr   = wf.getframerate()
@@ -116,7 +131,14 @@ def wav_to_dbspl_rows(wav_path, start_timestamp=None, target_hz=None):
     if n_blocks == 0:
         return []
     blocks = samples[:n_blocks * block].reshape(n_blocks, block)
-    rms    = np.sqrt((blocks ** 2).mean(axis=1))
+    power  = (blocks ** 2).mean(axis=1)  # linear power per frame
+
+    # Macro smoothing in the power domain (Leq), then back to RMS for dB.
+    win = int(round(float(smooth_ms) / 1000.0 * float(target_hz))) if smooth_ms else 0
+    if win > 1:
+        from scipy.ndimage import uniform_filter1d
+        power = uniform_filter1d(power, win, mode="nearest")
+    rms = np.sqrt(power)
 
     rows = []
     for i, r in enumerate(rms):

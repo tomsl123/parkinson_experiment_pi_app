@@ -512,7 +512,8 @@ async def api_download_exercise(ex_id: int):
             wav_path = RECORDINGS_DIR / ex["wav_filename"]
             if wav_path.exists():
                 zf.write(wav_path, arcname=ex["wav_filename"])
-        feat_csv = _run_features(blobs, distance_m, f"exercise_{ex_id}")
+        wav_path = RECORDINGS_DIR / ex["wav_filename"] if ex.get("wav_filename") else None
+        feat_csv = _run_features(blobs, distance_m, f"exercise_{ex_id}", wav_path)
         if feat_csv:
             zf.writestr("features.csv", feat_csv)
     buf.seek(0)
@@ -550,7 +551,8 @@ async def api_download_experiment(exp_id: int):
                 wav_path = RECORDINGS_DIR / ex["wav_filename"]
                 if wav_path.exists():
                     zf.write(wav_path, arcname=f"{prefix}/{ex['wav_filename']}")
-            feat_csv = _run_features(blobs, distance_m, f"exercise_{ex['id']}")
+            wav_path = RECORDINGS_DIR / ex["wav_filename"] if ex.get("wav_filename") else None
+            feat_csv = _run_features(blobs, distance_m, f"exercise_{ex['id']}", wav_path)
             if feat_csv:
                 zf.writestr(f"{prefix}/features.csv", feat_csv)
                 all_feat_rows.append(feat_csv)
@@ -577,7 +579,7 @@ async def api_download_experiment(exp_id: int):
 # ── Feature engineering ───────────────────────────────────────────────────────
 
 def _run_features(blobs: dict[str, bytes], distance_m: Optional[float],
-                  session_id: str) -> Optional[str]:
+                  session_id: str, wav_path: Optional[Path] = None) -> Optional[str]:
     """Compute features for one exercise. Returns CSV string or None on failure."""
     try:
         from feature_engineering import extract_features
@@ -594,9 +596,25 @@ def _run_features(blobs: dict[str, bytes], distance_m: Optional[float],
         audio_csv = zlib.decompress(audio_gz).decode() if audio_gz else None
         mar_csv   = zlib.decompress(mar_gz).decode()   if mar_gz   else None
 
+        # Prefer the WAV-derived, high-passed, smoothed dB SPL series for the
+        # voice features (the stored 'spl' RMS carries the LF drift and is noisy).
+        audio_io = io.StringIO(audio_csv) if audio_csv else None
+        if wav_path is not None and wav_path.exists():
+            try:
+                rows = wav_to_dbspl_rows(str(wav_path))
+                if rows:
+                    buf = io.StringIO()
+                    w = csv.writer(buf)
+                    w.writerow(["timestamp", "sound_pressure_dbspl"])
+                    w.writerows(rows)
+                    buf.seek(0)
+                    audio_io = buf
+            except Exception:
+                pass  # fall back to the stored-RMS csv
+
         files = {
             "imu":        io.StringIO(imu_csv),
-            "audio":      io.StringIO(audio_csv) if audio_csv else None,
+            "audio":      audio_io,
             "mouth":      io.StringIO(mar_csv)   if mar_csv   else None,
             "distance_m": distance_m,
         }
