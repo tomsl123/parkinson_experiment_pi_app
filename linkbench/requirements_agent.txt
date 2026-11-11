@@ -1,0 +1,6 @@
+# Pi side. Synthetic tests need only websockets.
+websockets
+# optional, only for BLE tests:
+# bless
+# Real-sensor mode additionally uses the prototype's Pi packages (pi/requirements_pi.txt):
+# smbus2, sounddevice, scipy, numpy, opencv-python-headless, picamera2 (apt)

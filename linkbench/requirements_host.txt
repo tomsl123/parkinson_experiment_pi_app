@@ -1,0 +1,7 @@
+# Computer side (dashboard, CLI, tests)
+fastapi
+uvicorn
+websockets
+pytest
+# optional, only for BLE tests:
+# bleak

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>linkbench</title>
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+<script src="vendor/uPlot.iife.min.js"></script>
+</head>
+<body>
+<header>
+  <div>
+    <h1>linkbench</h1>
+    <div class="sub">Pi ↔ computer connection benchmark – latency, loss, rates, integrity</div>
+  </div>
+  <nav class="tabs">
+    <button data-tab="live" class="active">Live</button>
+    <button data-tab="compare">Compare runs</button>
+  </nav>
+</header>
+
+<main>
+<section id="tab-live">
+  <div class="panel">
+    <h2>Run</h2>
+    <form class="controls" id="run-form" onsubmit="return false">
+      <label>Connection
+        <select id="f-link">
+          <option value="usb">USB cable (gadget Ethernet)</option>
+          <option value="ap">Wi-Fi AP (Pi hotspot)</option>
+          <option value="lan">LAN (shared router)</option>
+          <option value="bt">Bluetooth Classic</option>
+          <option value="ble">Bluetooth Low Energy</option>
+          <option value="local" selected>Local test (this computer)</option>
+        </select></label>
+      <label>Transport
+        <select id="f-transport">
+          <option value="ws">WebSocket (TCP)</option>
+          <option value="udp">UDP</option>
+          <option value="rfcomm">RFCOMM</option>
+          <option value="ble">BLE GATT</option>
+        </select></label>
+      <label>Address <input id="f-addr" value="127.0.0.1" size="18"></label>
+      <label>Port / channel <input id="f-port" type="number" placeholder="default"></label>
+      <label>Profile <select id="f-profile"></select></label>
+      <label>Duration s <input id="f-duration" type="number" placeholder="profile"></label>
+      <label>Data
+        <select id="f-source">
+          <option value="synthetic">Synthetic (verifiable)</option>
+          <option value="real">Real Pi sensors</option>
+        </select></label>
+      <label>Note <input id="f-note" size="18" placeholder="e.g. 3 m, through a wall"></label>
+      <button class="primary" id="btn-start">Start</button>
+      <button class="secondary" id="btn-stop" disabled>Stop</button>
+      <details class="faults">
+        <summary>Fault injection – for checking the tool itself, leave at 0 for real tests</summary>
+        <div class="row">
+          <label>Drop % <input id="f-drop" type="number" value="0" step="0.5"></label>
+          <label>Delay ms <input id="f-delay" type="number" value="0"></label>
+          <label>Jitter ms <input id="f-jitter" type="number" value="0"></label>
+          <label>Corrupt % <input id="f-corrupt" type="number" value="0" step="0.5"></label>
+        </div>
+      </details>
+    </form>
+    <p class="hint" id="profile-desc"></p>
+    <p class="err" id="run-error"></p>
+  </div>
+
+  <div class="panel">
+    <h2>Status <span class="hint" id="run-id"></span></h2>
+    <div class="strip" id="strip"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Streams <span class="hint" id="table-scope">last 5 s</span></h2>
+    <div id="stream-table"><p class="hint">Start a run to see results.</p></div>
+    <p class="legend-note">Sender Hz comes from the Pi's own send timestamps: if it is low, the Pi
+      could not keep the schedule (CPU, sensor). If sender Hz is fine but received Hz is low, the link
+      lost or stalled frames. Send wait = time the Pi spent blocked in send() (transport backpressure).</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel"><h2>One-way latency per frame <span class="hint">ms, via clock sync</span></h2><div id="c-latency" class="chart"></div></div>
+    <div class="panel"><h2>Throughput <span class="hint">kB/s per stream, last 1 s</span></h2><div id="c-throughput" class="chart"></div></div>
+    <div class="panel"><h2>Round-trip time <span class="hint">ms, 10 pings/s</span></h2><div id="c-rtt" class="chart"></div></div>
+    <div class="panel"><h2>Loss <span class="hint">% over the last 5 s</span></h2><div id="c-loss" class="chart"></div></div>
+  </div>
+
+  <div class="panel" style="margin-top:14px">
+    <h2>Inter-arrival times <span class="hint">gaps between received frames, last 5 s – a narrow peak at the nominal period is good</span></h2>
+    <div class="hists" id="hists"></div>
+  </div>
+
+  <div class="panel hidden" id="bulk-panel">
+    <h2>Bulk transfer</h2>
+    <div class="progress"><div id="bulk-bar" style="width:0"></div></div>
+    <p id="bulk-text" class="hint"></p>
+  </div>
+
+  <div class="panel hidden" id="ramp-panel">
+    <h2>Ramp <span class="hint">camera rate raised step by step until loss or latency fail</span></h2>
+    <div id="ramp-table"></div>
+  </div>
+
+  <div class="panel hidden" id="done-panel">
+    <h2>Result</h2>
+    <div id="done-body"></div>
+  </div>
+</section>
+
+<section id="tab-compare" class="hidden">
+  <div class="panel">
+    <h2>Recorded runs <span class="hint">tick runs to compare them below</span></h2>
+    <div id="runs-table"></div>
+  </div>
+  <div class="panel">
+    <h2>Comparison</h2>
+    <div id="compare-bars"><p class="hint">Select two or more runs.</p></div>
+  </div>
+</section>
+</main>
+
+<script src="common.js"></script>
+<script src="dashboard.js"></script>
+<script src="compare.js"></script>
+</body>
+</html>

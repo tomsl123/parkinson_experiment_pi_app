@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>linkbench report {{TITLE}}</title>
+<style>/*UPLOT_CSS*/</style>
+<style>/*STYLE*/</style>
+<script>/*UPLOT_JS*/</script>
+</head>
+<body>
+<header><div><h1>linkbench report</h1><div class="sub">{{TITLE}}</div></div></header>
+<main>
+  <div class="panel"><h2>Run</h2><div id="info"></div></div>
+  <div class="panel"><h2>Streams <span class="hint">whole run</span></h2><div id="streams"></div></div>
+  <div class="grid2">
+    <div class="panel"><h2>One-way latency per frame <span class="hint">ms</span></h2><div id="c-lat" class="chart"></div></div>
+    <div class="panel"><h2>Round-trip time <span class="hint">ms</span></h2><div id="c-rtt" class="chart"></div></div>
+    <div class="panel"><h2>Pi CPU <span class="hint">%</span></h2><div id="c-cpu" class="chart"></div></div>
+    <div class="panel"><h2>Inter-arrival times <span class="hint">whole run</span></h2><div id="hists" class="hists"></div></div>
+  </div>
+  <div class="panel" id="extra" style="margin-top:14px"></div>
+</main>
+<script>/*COMMON_JS*/</script>
+<script>
+const D = /*DATA*/null;
+const s = D.summary, ser = D.series;
+const cfg = s.config, c = s.clock, pi = s.pi || {};
+const kv = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+document.getElementById('info').innerHTML = `<div class="strip">${[
+  kv('Result', LB.badge(s.passed)), kv('Started', s.started_at.replace('T', ' ')),
+  kv('Connection', `${cfg.link} / ${cfg.transport}`), kv('Peer', (s.transport || {}).peer || '–'),
+  kv('Profile', s.profile_label), kv('Data', cfg.source), kv('Duration', `${LB.fmt(s.duration_s, 1)} s`),
+  kv('Board', pi.board || '–'), kv('Pi CPU max', pi.cpu_pct_max != null ? pi.cpu_pct_max + ' %' : '–'),
+  kv('Throttling', LB.throttledText(pi.throttled)),
+  kv('Wi-Fi', pi.wifi ? `${pi.wifi.signal_dbm ?? '–'} dBm · ${pi.wifi.tx_bitrate_mbps ?? '–'} Mbit/s` : '–'),
+  kv('RTT p50 / p95', `${LB.fmt(c.rtt_ms_p50)} / ${LB.fmt(c.rtt_ms_p95)} ms`),
+  kv('Clock drift', c.drift_ppm != null ? `${c.drift_ppm} ppm` : '–'),
+  kv('Ping loss', `${LB.fmt(c.ping_loss_pct, 1)} %`),
+  kv('Malformed frames', s.malformed_frames),
+].join('')}</div>${s.error ? `<p class="err">${s.error}</p>` : ''}${cfg.note ? `<p class="hint">Note: ${cfg.note}</p>` : ''}
+${cfg.faults && Object.values(cfg.faults).some(v => v) ? `<p class="err">Fault injection was active: ${JSON.stringify(cfg.faults)}</p>` : ''}`;
+LB.streamTable(document.getElementById('streams'), s.streams, s.sources, s.agent_stats);
+
+const names = Object.keys(ser.latency);
+const lat = LB.chart(document.getElementById('c-lat'), 'ms',
+  names.map((n, i) => ({ label: n, color: LB.color(n, i), points: true })));
+lat.setData(LB.align(names.map(n => ser.latency[n])));
+LB.chart(document.getElementById('c-rtt'), 'ms', [{ label: 'RTT', color: LB.css('--s1'), points: true }])
+  .setData(LB.align([ser.rtt]));
+LB.chart(document.getElementById('c-cpu'), '%', [{ label: 'CPU', color: LB.css('--s1') }])
+  .setData(LB.align([ser.cpu]));
+const nominal = Object.fromEntries(s.streams.map(x => [x.name, x.nominal_fps]));
+LB.histograms(document.getElementById('hists'), ser.hist, nominal);
+
+const extra = [];
+if (s.bulk) {
+  const b = s.bulk;
+  extra.push(`<h2>Bulk transfer</h2><p>${(b.received_bytes / 1048576).toFixed(2)} of ${(b.expected_bytes / 1048576).toFixed(2)} MB
+    in ${LB.fmt(b.seconds, 2)} s = <b>${LB.fmt(b.MBps)} MB/s</b> · SHA-256 ${b.sha256_ok ? '<span class="badge pass">✓ match</span>' : '<span class="badge fail">✗ mismatch</span>'}
+    ${b.missing_chunks ? ` · ${b.missing_chunks} chunks missing` : ''}</p>`);
+}
+if (s.ramp && s.ramp.length) {
+  extra.push(`<h2>Ramp</h2><table class="data"><thead><tr><th>step</th><th>camera fps</th><th>frame B</th>
+    <th>offered kB/s</th><th>throughput kB/s</th><th>loss %</th><th>p95 ms</th><th>status</th></tr></thead><tbody>
+    ${s.ramp.map(r => `<tr><td>${r.step}</td><td>${r.camera_fps}</td><td>${r.frame_bytes}</td><td>${LB.fmt(r.offered_kBps, 1)}</td>
+    <td>${LB.fmt(r.throughput_kBps, 1)}</td><td>${LB.fmt(r.loss_pct)}</td><td>${LB.fmt(r.latency_ms_p95)}</td>
+    <td>${LB.badge(r.passed)}</td></tr>`).join('')}</tbody></table>
+    <p>Max sustainable throughput: <b>${s.max_sustainable_kBps ?? '–'} kB/s</b>${s.ramp_ceiling_reached ? ' (ramp ceiling reached)' : ''}</p>`);
+}
+extra.push(`<h2>Thresholds</h2><p class="hint">${Object.entries(s.thresholds).map(([k, v]) => `${k} = ${v}`).join(' · ')}</p>`);
+document.getElementById('extra').innerHTML = extra.join('');
+</script>
+</body>
+</html>
